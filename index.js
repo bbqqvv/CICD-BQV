@@ -1,10 +1,10 @@
 console.log("Chào mừng bạn đến với thế giới CI/CD!");
 
-const express = require('express');
+const express = require("express");
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   const secret = process.env.APP_SECRET;
   if (!secret) {
     return res.status(500).json({ error: "Security Alert: APP_SECRET is missing!" });
