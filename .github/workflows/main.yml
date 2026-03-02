@@ -1,4 +1,4 @@
-name: Enterprise CI/CD Pipeline
+name: Extreme Enterprise CI/CD Pipeline
 
 on:
   push:
@@ -11,30 +11,58 @@ permissions:
   packages: write
 
 jobs:
-  # 🧪 CHẶNG 1: KIỂM THỬ (CI)
-  CI-Test:
-    name: 🧪 Unit Test & Lint
+  # 🔍 NHÁNH 1: KIỂM TRA ĐỊNH DẠNG (LINT)
+  Static-Analysis:
+    name: 🔍 Linting Code
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      - name: Install dependencies
-        run: npm install
-      - name: Linting
-        run: npm run lint
-      - name: Run Tests
+      - run: npm install
+      - run: npm run lint
+
+  # 🛡️ NHÁNH 2: QUÉT BẢO MẬT (SECURITY)
+  Security-Scan:
+    name: 🛡️ Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - name: Check for Vulnerabilities
+        run: npm audit --audit-level=high # Chỉ báo lỗi nếu có lỗ hổng nghiêm trọng
+
+  # 🧪 NHÁNH 3: KIỂM THỬ ĐA PHIÊN BẢN (MATRIX)
+  Unit-Tests:
+    name: 🧪 Test trên Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x] # Tủa ra 3 node con chạy song song
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm install
+      - name: Run Integration Tests
         env:
           APP_SECRET: ${{ secrets.MY_APP_SECRET }}
         run: npm test
 
-  # 📦 CHẶNG 2: ĐÓNG GÓI (Build)
-  Build-Artifact:
-    name: 📦 Build Docker Image
-    needs: CI-Test # Phải qua môn Test mới được đóng gói
+  # 📦 HỘI TỤ: ĐÓNG GÓI (BUILD)
+  Build-and-Push:
+    name: 📦 Build & Push Docker
+    needs: [Static-Analysis, Security-Scan, Unit-Tests] # Đợi cả 3 nhánh trên thành công
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,27 +87,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 🏗️ CHẶNG 3: TRIỂN KHAI THỬ NGHIỆM (Staging)
+  # 🏗️ TRIỂN KHAI STAGING
   Deploy-Staging:
-    name: 🏗️ Deploy to Staging
-    needs: Build-Artifact
+    name: 🏗️ Deploy Staging
+    needs: Build-and-Push
     runs-on: ubuntu-latest
-    environment: staging # Gắn nhãn môi trường
+    environment: staging
     steps:
-      - name: Mô phỏng Deploy
-        run: |
-          echo "🚀 Đang kéo Image từ GHCR..."
-          echo "✅ Đã triển khai lên cụm Server Staging (Môi trường kiểm thử)"
+      - name: Fake Deploy
+        run: echo "🚀 Đã triển khai lên cụm server Staging"
 
-  # 🚀 CHẶNG 4: TRIỂN KHAI THẬT (Production)
-  Deploy-Production:
-    name: 🚀 Deploy to Production
+  # 💨 KIỂM TRA NHANH (SMOKE TEST)
+  Smoke-Test:
+    name: 💨 Smoke Test (Health Check)
     needs: Deploy-Staging
-    if: github.ref == 'refs/heads/main' # Chỉ cho phép deploy Prod từ nhánh main
     runs-on: ubuntu-latest
-    environment: production # 🛑 Đây là nơi sẽ yêu cầu Manual Approval trên GitHub
     steps:
-      - name: Mô phỏng Deploy
+      - name: Check API Health
         run: |
-          echo "🌟 CHÚC MỪNG! Code của bạn đã lên môi trường Production cho hàng triệu người dùng."
-          echo "✅ Hoàn tất chu trình CI/CD Enterprise."
+          echo "🔍 Đang kiểm tra trạng thái API..."
+          sleep 5
+          echo "✅ API phản hồi tốt (HTTP 200 OK)"
+
+  # 🚀 TRIỂN KHAI PRODUCTION (Yêu cầu duyệt tay)
+  Deploy-Production:
+    name: 🚀 Deploy Production
+    needs: Smoke-Test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Final Deploy
+        run: echo "🌟 MISSION ACCOMPLISHED: Code đã lên Production!"
