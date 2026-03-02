@@ -118,4 +118,5 @@ jobs:
     environment: production
     steps:
       - name: Final Deploy
-        run: echo "🌟 MISSION ACCOMPLISHED: Code đã lên Production!"
+        run: |
+          echo "🌟 MISSION ACCOMPLISHED: Code đã lên Production!"
