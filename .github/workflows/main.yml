@@ -1,5 +1,6 @@
 name: Node.js CI
 
+
 on:
   push:
     branches: [ "main", "master" ]
@@ -31,6 +32,8 @@ jobs:
       
     - name: Chạy các bài kiểm tra (Tests)
       run: npm test
+      env:
+        APP_SECRET: ${{ secrets.MY_APP_SECRET }}
 
     - name: Chuyển đổi tên repository sang viết thường
       run: |

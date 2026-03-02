@@ -1,8 +1,13 @@
 const { greet } = require("./index");
 
+// Giả lập secret cho mục đích test local (nếu không chạy qua CLI)
+if (!process.env.APP_SECRET) {
+    process.env.APP_SECRET = "local-secret-for-testing";
+}
+
 function testGreet() {
     const result = greet("Học viên");
-    const expected = "Hello, Học viên!";
+    const expected = "Hello, Học viên! (Security: Active)";
 
     if (result === expected) {
         console.log("✅ Test định dạng lời chào: THÀNH CÔNG");
