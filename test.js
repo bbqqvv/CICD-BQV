@@ -1,9 +1,6 @@
 const { greet } = require("./index");
 
-// Giả lập secret cho mục đích test local (nếu không chạy qua CLI)
-if (!process.env.APP_SECRET) {
-    process.env.APP_SECRET = "local-secret-for-testing";
-}
+// Đã xóa phần giả lập secret local để test bảo mật Pipeline thực tế
 
 function testGreet() {
     const result = greet("Học viên");
