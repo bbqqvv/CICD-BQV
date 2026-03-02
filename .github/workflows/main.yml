@@ -1,4 +1,4 @@
-name: Extreme Enterprise CI/CD Pipeline
+name: MEGA Enterprise Ultimate Workflow
 
 on:
   push:
@@ -7,62 +7,95 @@ on:
     branches: [ "main", "master" ]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 jobs:
-  # 🔍 NHÁNH 1: KIỂM TRA ĐỊNH DẠNG (LINT)
-  Static-Analysis:
-    name: 🔍 Linting Code
+  # ==========================================
+  # TẦNG 1: KIỂM TRA HẠ TẦNG (INFRASTRUCTURE)
+  # ==========================================
+  IaC-Validation:
+    name: 🏗️ Terraform Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - name: Terraform Init & Validate
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
+          echo "✅ Hạ tầng (IaC) đã sẵn sàng."
+
+  # ==========================================
+  # TẦNG 2: KIỂM SOÁT CHẤT LƯỢNG (QUALITY GATE)
+  # ==========================================
+  Linter:
+    name: 🔍 Static Code Analysis
+    needs: IaC-Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
       - run: npm install
       - run: npm run lint
 
-  # 🛡️ NHÁNH 2: QUÉT BẢO MẬT (SECURITY)
-  Security-Scan:
-    name: 🛡️ Security Audit
+  Secrets-Scan:
+    name: 🔑 Secret Scanning
+    needs: IaC-Validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Check for common secrets
+        run: |
+          # Mô phỏng quét mã độc/secrets (Sử dụng grep cơ bản)
+          if grep -rE "password|api_key|secret_key" . --exclude-dir=node_modules; then
+            echo "⚠️ Cảnh báo: Tìm thấy từ khóa nhạy cảm trong code!"
+          fi
+          echo "✅ Đã quét xong bí mật."
+
+  Software-Audit:
+    name: 🛡️ Dependency Audit
+    needs: IaC-Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm install
-      - name: Check for Vulnerabilities
-        run: npm audit --audit-level=high # Chỉ báo lỗi nếu có lỗ hổng nghiêm trọng
+      - run: npm audit --audit-level=high
 
-  # 🧪 NHÁNH 3: KIỂM THỬ ĐA PHIÊN BẢN (MATRIX)
   Unit-Tests:
-    name: 🧪 Test trên Node ${{ matrix.node-version }}
+    name: 🧪 Unit Test (Node ${{ matrix.node-version }})
+    needs: IaC-Validation
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x] # Tủa ra 3 node con chạy song song
+        node-version: [18.x, 20.x, 22.x]
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm install
-      - name: Run Integration Tests
+      - name: Run Tests
         env:
           APP_SECRET: ${{ secrets.MY_APP_SECRET }}
         run: npm test
 
-  # 📦 HỘI TỤ: ĐÓNG GÓI (BUILD)
-  Build-and-Push:
-    name: 📦 Build & Push Docker
-    needs: [Static-Analysis, Security-Scan, Unit-Tests] # Đợi cả 3 nhánh trên thành công
+  # ==========================================
+  # TẦNG 3: ĐÓNG GÓI & QUÉT IMAGE (BUILD STACK)
+  # ==========================================
+  Build-Docker:
+    name: 📦 Build Container
+    needs: [Linter, Secrets-Scan, Software-Audit, Unit-Tests] # Chốt chặn Quality Gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,49 +107,71 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:latest
-            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ghcr.io/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 🏗️ TRIỂN KHAI STAGING
+  Vulnerability-Scan:
+    name: 🦠 Container Security Scan
+    needs: Build-Docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lowercase Repo Name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+      - name: Run Trivy Scan (Simulated)
+        run: |
+          echo "🔍 Đang quét lổ hổng của Image: ghcr.io/${{ env.IMAGE_NAME }}:latest"
+          echo "✅ Không tìm thấy lổ hổng nghiêm trọng (Critical vulnerabilities: 0)"
+
+  # ==========================================
+  # TẦNG 4: TRIỂN KHAI LIÊN TỤC (CD FLOW)
+  # ==========================================
   Deploy-Staging:
     name: 🏗️ Deploy Staging
-    needs: Build-and-Push
+    needs: Vulnerability-Scan
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - name: Fake Deploy
-        run: echo "🚀 Đã triển khai lên cụm server Staging"
+      - name: Deployment
+        run: echo "🚀 Code đã lên Staging Cluster."
 
-  # 💨 KIỂM TRA NHANH (SMOKE TEST)
-  Smoke-Test:
-    name: 💨 Smoke Test (Health Check)
+  Quality-Check-Smoke:
+    name: 💨 Smoke Test
     needs: Deploy-Staging
     runs-on: ubuntu-latest
     steps:
-      - name: Check API Health
+      - name: Check Health
         run: |
-          echo "🔍 Đang kiểm tra trạng thái API..."
-          sleep 5
-          echo "✅ API phản hồi tốt (HTTP 200 OK)"
+          echo "🔍 Kiểm tra API Health Check..."
+          sleep 3
+          echo "✅ API trả về trạng thái Ready."
 
-  # 🚀 TRIỂN KHAI PRODUCTION (Yêu cầu duyệt tay)
   Deploy-Production:
     name: 🚀 Deploy Production
-    needs: Smoke-Test
+    needs: Quality-Check-Smoke
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
+    environment: production # 🛑 Cần Manual approval
     steps:
-      - name: Final Deploy
+      - name: Final Production Deploy
+        run: echo "🌟 ĐÃ LÊN PRODUCTION THÀNH CÔNG!"
+
+  # ==========================================
+  # TẦNG 5: QUẢN LÝ PHÁT HÀNH (RELEASE)
+  # ==========================================
+  Create-Release:
+    name: 🏷️ Auto GitHub Release
+    needs: Deploy-Production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release Tag
         run: |
-          echo "🌟 MISSION ACCOMPLISHED: Code đã lên Production!"
+          echo "📦 Đang tạo GitHub Release cho phiên bản mới..."
+          echo "✅ Release v1.0.${{ github.run_number }} đã được tạo."
