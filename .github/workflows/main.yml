@@ -1,64 +1,54 @@
-name: Node.js CI
-
+name: Enterprise CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "develop" ]
   pull_request:
     branches: [ "main", "master" ]
 
-jobs:
-  # Job 1: Kiểm thử và Kiểm tra chất lượng code
-  Test-and-Lint:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read # Cần quyền đọc mã nguồn
-    steps:
-      - name: Checkout mã nguồn
-        uses: actions/checkout@v4
+permissions:
+  contents: read
+  packages: write
 
-      - name: Thiết lập Node.js
+jobs:
+  # 🧪 CHẶNG 1: KIỂM THỬ (CI)
+  CI-Test:
+    name: 🧪 Unit Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm' # Tự động Caching node_modules
-
-      - name: Cài đặt dependencies
+          cache: 'npm'
+      - name: Install dependencies
         run: npm install
-
-      - name: Kiểm tra lỗi (Linting)
+      - name: Linting
         run: npm run lint
-
-      - name: Chạy Unit Test
+      - name: Run Tests
         env:
-          APP_SECRET: ${{ secrets.MY_APP_SECRET }} # Sử dụng secret thật để test
+          APP_SECRET: ${{ secrets.MY_APP_SECRET }}
         run: npm test
 
-  # Job 2: Đóng gói Docker và Đẩy lên Registry (Chỉ chạy khi Job 1 thành công)
-  Build-and-Push:
-    needs: Test-and-Lint # Ràng buộc: Job 1 phải PASS thì Job 2 mới chạy
+  # 📦 CHẶNG 2: ĐÓNG GÓI (Build)
+  Build-Artifact:
+    name: 📦 Build Docker Image
+    needs: CI-Test # Phải qua môn Test mới được đóng gói
     runs-on: ubuntu-latest
-    permissions:
-      contents: read # Cần quyền đọc mã nguồn
-      packages: write # Cần quyền ghi để đẩy image lên GHCR
     steps:
-      - name: Checkout mã nguồn
-        uses: actions/checkout@v4
-
-      - name: Chuyển repository name sang viết thường
+      - uses: actions/checkout@v4
+      - name: Lowercase Repo Name
         run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-      - name: Đăng nhập vào GitHub Container Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Thiết lập Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
-      - name: Build và Push Docker image (Có Caching layers)
+      - name: Build and Push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -66,5 +56,30 @@ jobs:
           tags: |
             ghcr.io/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          cache-from: type=gha # Caching Docker layer từ GitHub Actions
+          cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # 🏗️ CHẶNG 3: TRIỂN KHAI THỬ NGHIỆM (Staging)
+  Deploy-Staging:
+    name: 🏗️ Deploy to Staging
+    needs: Build-Artifact
+    runs-on: ubuntu-latest
+    environment: staging # Gắn nhãn môi trường
+    steps:
+      - name: Mô phỏng Deploy
+        run: |
+          echo "🚀 Đang kéo Image từ GHCR..."
+          echo "✅ Đã triển khai lên cụm Server Staging (Môi trường kiểm thử)"
+
+  # 🚀 CHẶNG 4: TRIỂN KHAI THẬT (Production)
+  Deploy-Production:
+    name: 🚀 Deploy to Production
+    needs: Deploy-Staging
+    if: github.ref == 'refs/heads/main' # Chỉ cho phép deploy Prod từ nhánh main
+    runs-on: ubuntu-latest
+    environment: production # 🛑 Đây là nơi sẽ yêu cầu Manual Approval trên GitHub
+    steps:
+      - name: Mô phỏng Deploy
+        run: |
+          echo "🌟 CHÚC MỪNG! Code của bạn đã lên môi trường Production cho hàng triệu người dùng."
+          echo "✅ Hoàn tất chu trình CI/CD Enterprise."
