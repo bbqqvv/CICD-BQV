@@ -1,0 +1,4 @@
+# File này được tạo ra bởi Terraform để minh họa khái niệm Infrastructure as Code.
+# Nội dung của "hạ tầng" này:
+Xin chào, tôi là một tệp tin được quản lý bởi Terraform!
+Nếu bạn sửa nội dung trong main.tf và chạy terraform apply, nội dung của tôi sẽ thay đổi theo.

@@ -1,11 +1,25 @@
 console.log("Chào mừng bạn đến với thế giới CI/CD!");
 
-function greet(name) {
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
   const secret = process.env.APP_SECRET;
   if (!secret) {
-    throw new Error("❌ Bảo mật: Không tìm thấy APP_SECRET!");
+    return res.status(500).json({ error: "Security Alert: APP_SECRET is missing!" });
   }
-  return `Hello, ${name}! (Security: Active)`;
+  res.json({
+    message: "Chào mừng bạn đến với chuyên gia CI/CD!",
+    security: "Active",
+    timestamp: new Date().toISOString()
+  });
+});
+
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
 }
 
-module.exports = { greet };
+module.exports = app;

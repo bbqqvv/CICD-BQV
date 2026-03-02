@@ -8,52 +8,63 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
-  build:
+  # Job 1: Kiểm thử và Kiểm tra chất lượng code
+  Test-and-Lint:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: read
-      packages: write
-
+      contents: read # Cần quyền đọc mã nguồn
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Sử dụng Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'npm'
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Thiết lập Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm' # Tự động Caching node_modules
+
+      - name: Cài đặt dependencies
+        run: npm install
+
+      - name: Kiểm tra lỗi (Linting)
+        run: npm run lint
+
+      - name: Chạy Unit Test
+        env:
+          APP_SECRET: ${{ secrets.MY_APP_SECRET }} # Sử dụng secret thật để test
+        run: npm test
+
+  # Job 2: Đóng gói Docker và Đẩy lên Registry (Chỉ chạy khi Job 1 thành công)
+  Build-and-Push:
+    needs: Test-and-Lint # Ràng buộc: Job 1 phải PASS thì Job 2 mới chạy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Cần quyền đọc mã nguồn
+      packages: write # Cần quyền ghi để đẩy image lên GHCR
+    steps:
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Chuyển repository name sang viết thường
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Đăng nhập vào GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Thiết lập Docker Buildx
+        uses: docker/setup-buildx-action@v3
         
-    - name: Cài đặt dependencies
-      run: npm install
-      
-    - name: Kiểm tra chất lượng code (Lint)
-      run: npm run lint
-      
-    - name: Chạy các bài kiểm tra (Tests)
-      run: npm test
-      env:
-        APP_SECRET: ${{ secrets.MY_APP_SECRET }}
-
-    - name: Chuyển đổi tên repository sang viết thường
-      run: |
-        echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-    - name: Đăng nhập vào GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Thiết lập Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build và Push Docker image lên GHCR
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: |
-          ${{ env.IMAGE_NAME }}:latest
-          ${{ env.IMAGE_NAME }}:${{ github.sha }}
+      - name: Build và Push Docker image (Có Caching layers)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha # Caching Docker layer từ GitHub Actions
+          cache-to: type=gha,mode=max
